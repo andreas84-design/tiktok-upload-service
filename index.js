@@ -1,6 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const FormData = require('form-data');
 require('dotenv').config();
 
 const app = express();
@@ -15,7 +14,7 @@ const TIKTOK_REFRESH_TOKEN = process.env.TIKTOK_REFRESH_TOKEN;
 app.get('/', (req, res) => {
   res.json({ 
     status: 'TikTok Upload Service Running',
-    version: '1.0.2',
+    version: '1.0.3',
     timestamp: new Date().toISOString()
   });
 });
@@ -55,17 +54,10 @@ app.post('/upload', async (req, res) => {
     const videoSize = videoBuffer.length;
     console.log(`✅ Video downloaded: ${(videoSize / (1024 * 1024)).toFixed(2)} MB`);
 
-    // Step 3: Initialize upload session - USA API DIVERSA
-    console.log('🔄 Step 3: Initializing TikTok upload session...');
-    
-    const chunkSize = 5 * 1024 * 1024; // 5MB chunks (più piccoli per sicurezza)
-    const totalChunks = Math.ceil(videoSize / chunkSize);
-    
+    // Step 3: Initialize upload session (NO CHUNK!)
+    console.log('🔄 Step 3: Initializing TikTok upload session (direct upload)...');
     console.log(`   Video size: ${videoSize} bytes`);
-    console.log(`   Chunk size: ${chunkSize} bytes`);
-    console.log(`   Total chunks: ${totalChunks}`);
     
-    // ✅ USA QUESTA API INVECE
     const initResponse = await axios.post(
       'https://open.tiktokapis.com/v2/post/publish/video/init/',
       {
@@ -80,9 +72,7 @@ app.post('/upload', async (req, res) => {
         },
         source_info: {
           source: 'FILE_UPLOAD',
-          video_size: videoSize,
-          chunk_size: chunkSize,
-          total_chunk_count: totalChunks
+          video_size: videoSize
         }
       },
       {
@@ -96,29 +86,20 @@ app.post('/upload', async (req, res) => {
     const { publish_id, upload_url } = initResponse.data.data;
     console.log(`✅ Upload session initialized: ${publish_id}`);
 
-    // Step 4: Upload video in chunks
-    console.log('📤 Step 4: Uploading video chunks...');
-
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, videoSize);
-      const chunk = videoBuffer.slice(start, end);
-
-      console.log(`   Uploading chunk ${i + 1}/${totalChunks} (${chunk.length} bytes)...`);
-      
-      await axios.put(upload_url, chunk, {
-        headers: {
-          'Content-Range': `bytes ${start}-${end - 1}/${videoSize}`,
-          'Content-Length': chunk.length,
-          'Content-Type': 'video/mp4'
-        },
-        timeout: 180000
-      });
-    }
-    console.log('✅ All chunks uploaded');
-
-    // Step 5: Non serve chiamata separata! Già pubblicato nello step 3
-    console.log('✅ Video published successfully!');
+    // Step 4: Upload video in ONE single request
+    console.log('📤 Step 4: Uploading video (single upload)...');
+    
+    await axios.put(upload_url, videoBuffer, {
+      headers: {
+        'Content-Type': 'video/mp4',
+        'Content-Length': videoSize
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      timeout: 300000
+    });
+    
+    console.log('✅ Video uploaded successfully!');
 
     res.json({
       success: true,
