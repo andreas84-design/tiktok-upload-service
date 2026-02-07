@@ -14,7 +14,7 @@ const TIKTOK_REFRESH_TOKEN = process.env.TIKTOK_REFRESH_TOKEN;
 app.get('/', (req, res) => {
   res.json({ 
     status: 'TikTok Upload Service Running',
-    version: '1.0.3',
+    version: '1.0.4',
     timestamp: new Date().toISOString()
   });
 });
@@ -54,8 +54,8 @@ app.post('/upload', async (req, res) => {
     const videoSize = videoBuffer.length;
     console.log(`✅ Video downloaded: ${(videoSize / (1024 * 1024)).toFixed(2)} MB`);
 
-    // Step 3: Initialize upload session (NO CHUNK!)
-    console.log('🔄 Step 3: Initializing TikTok upload session (direct upload)...');
+    // Step 3: Initialize upload session
+    console.log('🔄 Step 3: Initializing TikTok upload session...');
     console.log(`   Video size: ${videoSize} bytes`);
     
     const initResponse = await axios.post(
@@ -72,7 +72,10 @@ app.post('/upload', async (req, res) => {
         },
         source_info: {
           source: 'FILE_UPLOAD',
-          video_size: videoSize
+          video_size: videoSize,
+          video_url: '',
+          chunk_size: videoSize,
+          total_chunk_count: 1
         }
       },
       {
@@ -86,13 +89,14 @@ app.post('/upload', async (req, res) => {
     const { publish_id, upload_url } = initResponse.data.data;
     console.log(`✅ Upload session initialized: ${publish_id}`);
 
-    // Step 4: Upload video in ONE single request
-    console.log('📤 Step 4: Uploading video (single upload)...');
+    // Step 4: Upload video
+    console.log('📤 Step 4: Uploading video...');
     
     await axios.put(upload_url, videoBuffer, {
       headers: {
         'Content-Type': 'video/mp4',
-        'Content-Length': videoSize
+        'Content-Length': videoSize,
+        'Content-Range': `bytes 0-${videoSize - 1}/${videoSize}`
       },
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
