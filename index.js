@@ -15,7 +15,7 @@ const TIKTOK_REFRESH_TOKEN = process.env.TIKTOK_REFRESH_TOKEN;
 app.get('/', (req, res) => {
   res.json({ 
     status: 'TikTok Upload Service Running',
-    version: '1.0.1',
+    version: '1.0.2',
     timestamp: new Date().toISOString()
   });
 });
@@ -55,20 +55,29 @@ app.post('/upload', async (req, res) => {
     const videoSize = videoBuffer.length;
     console.log(`✅ Video downloaded: ${(videoSize / (1024 * 1024)).toFixed(2)} MB`);
 
-    // Step 3: Initialize upload session
+    // Step 3: Initialize upload session - USA API DIVERSA
     console.log('🔄 Step 3: Initializing TikTok upload session...');
     
-    // ✅ FIX: Calcola chunk size e total chunks prima
-    const chunkSize = 10 * 1024 * 1024; // 10MB
+    const chunkSize = 5 * 1024 * 1024; // 5MB chunks (più piccoli per sicurezza)
     const totalChunks = Math.ceil(videoSize / chunkSize);
     
     console.log(`   Video size: ${videoSize} bytes`);
     console.log(`   Chunk size: ${chunkSize} bytes`);
     console.log(`   Total chunks: ${totalChunks}`);
     
+    // ✅ USA QUESTA API INVECE
     const initResponse = await axios.post(
-      'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/',
+      'https://open.tiktokapis.com/v2/post/publish/video/init/',
       {
+        post_info: {
+          title: title,
+          description: description,
+          privacy_level: 'SELF_ONLY',
+          disable_comment: false,
+          disable_duet: false,
+          disable_stitch: false,
+          video_cover_timestamp_ms: 1000
+        },
         source_info: {
           source: 'FILE_UPLOAD',
           video_size: videoSize,
@@ -108,40 +117,12 @@ app.post('/upload', async (req, res) => {
     }
     console.log('✅ All chunks uploaded');
 
-    // Step 5: Publish video
-    console.log('🎉 Step 5: Publishing video on TikTok...');
-    const publishResponse = await axios.post(
-      'https://open.tiktokapis.com/v2/post/publish/video/init/',
-      {
-        post_info: {
-          title: title,
-          description: description,
-          privacy_level: 'SELF_ONLY',
-          disable_comment: false,
-          disable_duet: false,
-          disable_stitch: false,
-          video_cover_timestamp_ms: 1000
-        },
-        source_info: {
-          source: 'FILE_UPLOAD',
-          video_url: upload_url,
-          publish_id: publish_id
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json; charset=UTF-8'
-        }
-      }
-    );
-
-    const videoId = publishResponse.data.data.publish_id;
-    console.log(`✅ Video published successfully! ID: ${videoId}`);
+    // Step 5: Non serve chiamata separata! Già pubblicato nello step 3
+    console.log('✅ Video published successfully!');
 
     res.json({
       success: true,
-      video_id: videoId,
+      video_id: publish_id,
       publish_id: publish_id,
       message: 'Video pubblicato con successo su TikTok',
       channel: channel_name
