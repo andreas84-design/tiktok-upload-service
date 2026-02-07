@@ -15,7 +15,7 @@ const TIKTOK_REFRESH_TOKEN = process.env.TIKTOK_REFRESH_TOKEN;
 app.get('/', (req, res) => {
   res.json({ 
     status: 'TikTok Upload Service Running',
-    version: '1.0.0',
+    version: '1.0.1',
     timestamp: new Date().toISOString()
   });
 });
@@ -57,14 +57,23 @@ app.post('/upload', async (req, res) => {
 
     // Step 3: Initialize upload session
     console.log('🔄 Step 3: Initializing TikTok upload session...');
+    
+    // ✅ FIX: Calcola chunk size e total chunks prima
+    const chunkSize = 10 * 1024 * 1024; // 10MB
+    const totalChunks = Math.ceil(videoSize / chunkSize);
+    
+    console.log(`   Video size: ${videoSize} bytes`);
+    console.log(`   Chunk size: ${chunkSize} bytes`);
+    console.log(`   Total chunks: ${totalChunks}`);
+    
     const initResponse = await axios.post(
       'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/',
       {
         source_info: {
           source: 'FILE_UPLOAD',
           video_size: videoSize,
-          chunk_size: 10 * 1024 * 1024,
-          total_chunk_count: Math.ceil(videoSize / (10 * 1024 * 1024))
+          chunk_size: chunkSize,
+          total_chunk_count: totalChunks
         }
       },
       {
@@ -80,15 +89,13 @@ app.post('/upload', async (req, res) => {
 
     // Step 4: Upload video in chunks
     console.log('📤 Step 4: Uploading video chunks...');
-    const chunkSize = 10 * 1024 * 1024;
-    const totalChunks = Math.ceil(videoSize / chunkSize);
 
     for (let i = 0; i < totalChunks; i++) {
       const start = i * chunkSize;
       const end = Math.min(start + chunkSize, videoSize);
       const chunk = videoBuffer.slice(start, end);
 
-      console.log(`   Uploading chunk ${i + 1}/${totalChunks}...`);
+      console.log(`   Uploading chunk ${i + 1}/${totalChunks} (${chunk.length} bytes)...`);
       
       await axios.put(upload_url, chunk, {
         headers: {
