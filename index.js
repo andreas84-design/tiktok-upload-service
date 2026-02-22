@@ -172,26 +172,26 @@ async function uploadPinterestVideoPin({
 
     console.log('📌 [Pinterest] Creating pin (POST /v5/pins)...');
     const pinCreateResponse = await axios.post(
-      'https://api.pinterest.com/v5/pins',
-      {
-        board_id: pinterest_board_id,
-        media_source: {
-          source_type: 'media_id',
-          media_id: mediaId,
+        'https://api.pinterest.com/v5/pins',
+        {
+          board_id: pinterest_board_id,
+          media_source: {
+            source_type: 'video_id',   // 🔴 prima era 'media_id'
+            media_id: String(mediaId), // deve essere stringa di cifre
+          },
+          title: finalTitle,
+          description: finalDescription,
+          note: finalDescription,
+          link: youtube_channel_url || undefined,
+          // tag_names: tagList,
         },
-        title: finalTitle,
-        description: finalDescription,
-        note: finalDescription,
-        link: youtube_channel_url || undefined, // URL di destinazione verso il canale YouTube [web:53][web:168]
-        // tag_names: tagList,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${pinterest_access_token}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${pinterest_access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
     const pinId = pinCreateResponse.data.id || pinCreateResponse.data.pin_id;
     const pinLink =
@@ -413,3 +413,4 @@ app.listen(PORT, () => {
   console.log(`📡 TikTok Endpoint:    POST /upload`);
   console.log(`📡 Pinterest Endpoint: POST /upload/pinterest`);
 });
+
