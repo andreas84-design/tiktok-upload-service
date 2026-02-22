@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 require('dotenv').config();
 const https = require('https');
+const FormData = require('form-data');
 
 const app = express();
 app.use(express.json());
@@ -26,7 +27,7 @@ async function downloadVideoToBuffer(videoUrl) {
   return { videoBuffer, videoSize };
 }
 
-// 🔹 Funzione core Pinterest: media + upload + pin
+// 🔹 Funzione core Pinterest: media + upload (multipart) + pin
 async function uploadPinterestVideoPin({
   video_url,
   title,
@@ -36,6 +37,7 @@ async function uploadPinterestVideoPin({
   pinterest_board_id,
   pinterest_profile,
   pinterest_access_token,
+  youtube_channel_url,
 }) {
   try {
     console.log('📌 [Pinterest] Starting upload...');
@@ -43,6 +45,7 @@ async function uploadPinterestVideoPin({
     console.log(`   Board ID: ${pinterest_board_id}`);
     console.log(`   Profile: ${pinterest_profile}`);
     console.log(`   Video URL: ${video_url}`);
+    console.log(`   YouTube URL: ${youtube_channel_url}`);
 
     // 1) Scarica il video da R2
     const { videoBuffer, videoSize } = await downloadVideoToBuffer(video_url);
@@ -62,42 +65,59 @@ async function uploadPinterestVideoPin({
       }
     );
 
-    // Docs: response include media_id, upload_url, upload_parameters. [web:14][web:134][web:174]
     const mediaId =
       mediaCreateResponse.data.media_id ||
-      mediaCreateResponse.data.id ||
-      mediaCreateResponse.data.media?.media_id ||
-      mediaCreateResponse.data.media?.id;
-    const uploadUrl =
-      mediaCreateResponse.data.upload_url ||
-      mediaCreateResponse.data.media?.upload_url;
+      mediaCreateResponse.data.id;
+    const uploadUrl = mediaCreateResponse.data.upload_url;
+    const uploadParams = mediaCreateResponse.data.upload_parameters;
 
     console.log(`✅ [Pinterest] Media created: ${mediaId}`);
     console.log(`   Upload URL: ${uploadUrl}`);
+    console.log('   upload_parameters:', uploadParams);
 
-    if (!mediaId || !uploadUrl) {
-      throw new Error('Missing mediaId or uploadUrl from Pinterest /v5/media response');
+    if (!mediaId || !uploadUrl || !uploadParams) {
+      throw new Error('Missing mediaId, uploadUrl or upload_parameters from /v5/media');
     }
 
-    // 3) Upload del file al presigned upload_url
-    console.log('📤 [Pinterest] Uploading video file to upload_url (POST)...');
-    await axios.request({
-      method: 'POST', // Pinterest docs indicano POST verso upload_url. [web:14][web:166][web:170]
-      url: uploadUrl,
+    // 3) Upload del file al presigned upload_url come multipart/form-data (S3 POST)
+    console.log('📤 [Pinterest] Uploading video file as multipart/form-data...');
+
+    const fd = new FormData();
+
+    // Aggiungi TUTTI i campi di upload_parameters nel form
+    for (const key of Object.keys(uploadParams)) {
+      fd.append(key, uploadParams[key]);
+    }
+
+    // Campo file (S3 presigned POST si aspetta "file") [web:6][web:223][web:255]
+    fd.append('file', videoBuffer, {
+      filename: 'video.mp4',
+      contentType: 'video/mp4',
+      knownLength: videoSize,
+    });
+
+    const uploadResponse = await axios.post(uploadUrl, fd, {
       headers: {
-        'Content-Type': 'video/mp4',
-        'Content-Length': videoSize,
+        ...fd.getHeaders(), // Content-Type multipart/form-data con boundary corretto
       },
-      data: videoBuffer,
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
       timeout: 300000,
       httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      validateStatus: () => true, // vogliamo leggere anche 204
     });
 
-    console.log('✅ [Pinterest] Video uploaded to upload_url');
+    console.log('   [Pinterest] Upload HTTP status:', uploadResponse.status);
+    if (uploadResponse.status !== 204 && uploadResponse.status !== 201 && uploadResponse.status !== 200) {
+      console.error('❌ [Pinterest] Upload to S3 did not return success status');
+      console.error('Response headers:', uploadResponse.headers);
+      console.error('Response data:', uploadResponse.data);
+      throw new Error(`Pinterest S3 upload failed with status ${uploadResponse.status}`);
+    }
 
-    // 4) (Opzionale) Poll dello stato media. Qui facciamo un mini-poll per sicurezza.
+    console.log('✅ [Pinterest] Video uploaded to upload_url (multipart/form-data)');
+
+    // 4) Poll dello stato media
     console.log('⏱️  [Pinterest] Checking media status (GET /v5/media/{media_id})...');
     let mediaStatus = 'registered';
     let attempts = 0;
@@ -142,7 +162,6 @@ async function uploadPinterestVideoPin({
     const finalDescription = description || title || '';
     const finalTitle = title || description || 'New Pin';
 
-    // Se hai i tag come stringa "tag1, tag2, tag3"
     let tagList = [];
     if (tags) {
       tagList = tags
@@ -157,13 +176,14 @@ async function uploadPinterestVideoPin({
       {
         board_id: pinterest_board_id,
         media_source: {
-          source_type: 'media_id', // usare media_id per video upload. [web:6][web:169][web:175]
+          source_type: 'media_id',
           media_id: mediaId,
         },
         title: finalTitle,
         description: finalDescription,
         note: finalDescription,
-        // tag_names: tagList, // abilita se il tuo app ha permesso e campo
+        link: youtube_channel_url || undefined, // URL di destinazione verso il canale YouTube [web:53][web:168]
+        // tag_names: tagList,
       },
       {
         headers: {
@@ -204,12 +224,12 @@ async function uploadPinterestVideoPin({
 app.get('/', (req, res) => {
   res.json({
     status: 'TikTok & Pinterest Upload Service Running',
-    version: '2.0.0',
+    version: '2.1.0',
     timestamp: new Date().toISOString(),
   });
 });
 
-// 🔹 TikTok main upload endpoint (come ce l’avevi)
+// 🔹 TikTok main upload endpoint
 app.post('/upload', async (req, res) => {
   try {
     const { video_url, title, description, channel_name } = req.body;
@@ -323,6 +343,7 @@ app.post('/upload/pinterest', async (req, res) => {
       pinterest_board_id,
       pinterest_profile,
       pinterest_access_token,
+      youtube_channel_url,
     } = req.body;
 
     console.log('🚀 [Pinterest] New request from n8n...');
@@ -353,6 +374,7 @@ app.post('/upload/pinterest', async (req, res) => {
       pinterest_board_id,
       pinterest_profile,
       pinterest_access_token,
+      youtube_channel_url,
     });
 
     if (!result.success) {
