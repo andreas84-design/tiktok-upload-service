@@ -38,6 +38,7 @@ async function uploadPinterestVideoPin({
   pinterest_profile,
   pinterest_access_token,
   youtube_channel_url,
+  cover_image_url,              // 👈 aggiunto
 }) {
   try {
     console.log('📌 [Pinterest] Starting upload...');
@@ -46,6 +47,7 @@ async function uploadPinterestVideoPin({
     console.log(`   Profile: ${pinterest_profile}`);
     console.log(`   Video URL: ${video_url}`);
     console.log(`   YouTube URL: ${youtube_channel_url}`);
+    console.log(`   Cover URL: ${cover_image_url}`);
 
     // 1) Scarica il video da R2
     const { videoBuffer, videoSize } = await downloadVideoToBuffer(video_url);
@@ -54,9 +56,7 @@ async function uploadPinterestVideoPin({
     console.log('📝 [Pinterest] Registering media upload (POST /v5/media)...');
     const mediaCreateResponse = await axios.post(
       'https://api.pinterest.com/v5/media',
-      {
-        media_type: 'video',
-      },
+      { media_type: 'video' },
       {
         headers: {
           Authorization: `Bearer ${pinterest_access_token}`,
@@ -66,8 +66,7 @@ async function uploadPinterestVideoPin({
     );
 
     const mediaId =
-      mediaCreateResponse.data.media_id ||
-      mediaCreateResponse.data.id;
+      mediaCreateResponse.data.media_id || mediaCreateResponse.data.id;
     const uploadUrl = mediaCreateResponse.data.upload_url;
     const uploadParams = mediaCreateResponse.data.upload_parameters;
 
@@ -89,7 +88,7 @@ async function uploadPinterestVideoPin({
       fd.append(key, uploadParams[key]);
     }
 
-    // Campo file (S3 presigned POST si aspetta "file") [web:6][web:223][web:255]
+    // Campo file (S3 presigned POST si aspetta "file")
     fd.append('file', videoBuffer, {
       filename: 'video.mp4',
       contentType: 'video/mp4',
@@ -98,17 +97,21 @@ async function uploadPinterestVideoPin({
 
     const uploadResponse = await axios.post(uploadUrl, fd, {
       headers: {
-        ...fd.getHeaders(), // Content-Type multipart/form-data con boundary corretto
+        ...fd.getHeaders(),
       },
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
       timeout: 300000,
       httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-      validateStatus: () => true, // vogliamo leggere anche 204
+      validateStatus: () => true,
     });
 
     console.log('   [Pinterest] Upload HTTP status:', uploadResponse.status);
-    if (uploadResponse.status !== 204 && uploadResponse.status !== 201 && uploadResponse.status !== 200) {
+    if (
+      uploadResponse.status !== 204 &&
+      uploadResponse.status !== 201 &&
+      uploadResponse.status !== 200
+    ) {
       console.error('❌ [Pinterest] Upload to S3 did not return success status');
       console.error('Response headers:', uploadResponse.headers);
       console.error('Response data:', uploadResponse.data);
@@ -137,8 +140,12 @@ async function uploadPinterestVideoPin({
             },
           }
         );
-        mediaStatus = mediaGetResponse.data.status || mediaGetResponse.data.media?.status;
-        console.log(`   [Pinterest] Media status attempt ${attempts}: ${mediaStatus}`);
+        mediaStatus =
+          mediaGetResponse.data.status ||
+          mediaGetResponse.data.media?.status;
+        console.log(
+          `   [Pinterest] Media status attempt ${attempts}: ${mediaStatus}`
+        );
         if (mediaStatus === 'failed') {
           throw new Error('Pinterest media upload failed');
         }
@@ -171,30 +178,39 @@ async function uploadPinterestVideoPin({
     }
 
     console.log('📌 [Pinterest] Creating pin (POST /v5/pins)...');
-    const pinCreateResponse = await axios.post(
-        'https://api.pinterest.com/v5/pins',
-        {
-          board_id: pinterest_board_id,
-          media_source: {
-            source_type: 'video_id',   // 🔴 prima era 'media_id'
-            media_id: String(mediaId), // deve essere stringa di cifre
-            cover_image_url: cover_image_url, //thumbnail pin
-          },
-          title: finalTitle,
-          description: finalDescription,
-          note: finalDescription,
-          link: youtube_channel_url || undefined,
-          // tag_names: tagList,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${pinterest_access_token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
 
-    const pinId = pinCreateResponse.data.id || pinCreateResponse.data.pin_id;
+    const pinBody = {
+      board_id: pinterest_board_id,
+      media_source: {
+        source_type: 'video_id',
+        media_id: String(mediaId),
+        cover_image_url: cover_image_url || undefined, // 👈 QUI dentro
+      },
+      title: finalTitle,
+      description: finalDescription,
+      note: finalDescription,
+      link: youtube_channel_url || undefined,
+      // tag_names: tagList,
+    };
+
+    console.log(
+      '>>> [Pinterest] PINTEREST BODY <<<',
+      JSON.stringify(pinBody, null, 2)
+    );
+
+    const pinCreateResponse = await axios.post(
+      'https://api.pinterest.com/v5/pins',
+      pinBody,
+      {
+        headers: {
+          Authorization: `Bearer ${pinterest_access_token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const pinId =
+      pinCreateResponse.data.id || pinCreateResponse.data.pin_id;
     const pinLink =
       pinCreateResponse.data.link ||
       pinCreateResponse.data.url ||
@@ -260,7 +276,11 @@ app.post('/upload', async (req, res) => {
     // Step 2: Download video from R2
     console.log('⬇️  Step 2: Downloading video from R2...');
     const { videoBuffer, videoSize } = await downloadVideoToBuffer(video_url);
-    console.log(`✅ Video downloaded for TikTok: ${(videoSize / (1024 * 1024)).toFixed(2)} MB`);
+    console.log(
+      `✅ Video downloaded for TikTok: ${(videoSize / (1024 * 1024)).toFixed(
+        2
+      )} MB`
+    );
 
     // Step 3: Initialize upload session
     console.log('🔄 Step 3: Initializing TikTok upload session...');
@@ -345,6 +365,7 @@ app.post('/upload/pinterest', async (req, res) => {
       pinterest_profile,
       pinterest_access_token,
       youtube_channel_url,
+      cover_image_url,     // 👈 prende il campo che arriva da n8n
     } = req.body;
 
     console.log('🚀 [Pinterest] New request from n8n...');
@@ -352,6 +373,7 @@ app.post('/upload/pinterest', async (req, res) => {
     console.log(`   sheet_id: ${sheet_id}`);
     console.log(`   channel_name: ${channel_name}`);
     console.log(`   board_id: ${pinterest_board_id}`);
+    console.log(`   cover_image_url: ${cover_image_url}`);
 
     if (!video_url || !pinterest_board_id || !pinterest_access_token) {
       console.error('❌ [Pinterest] Missing required fields');
@@ -376,6 +398,7 @@ app.post('/upload/pinterest', async (req, res) => {
       pinterest_profile,
       pinterest_access_token,
       youtube_channel_url,
+      cover_image_url,   // 👈 passato alla funzione
     });
 
     if (!result.success) {
@@ -399,7 +422,10 @@ app.post('/upload/pinterest', async (req, res) => {
       pinterest_board_id,
     });
   } catch (error) {
-    console.error('❌ [Pinterest] Route error:', error.response?.data || error.message);
+    console.error(
+      '❌ [Pinterest] Route error:',
+      error.response?.data || error.message
+    );
     return res.status(500).json({
       success: false,
       error: error.response?.data || error.message,
@@ -414,6 +440,3 @@ app.listen(PORT, () => {
   console.log(`📡 TikTok Endpoint:    POST /upload`);
   console.log(`📡 Pinterest Endpoint: POST /upload/pinterest`);
 });
-
-
-
