@@ -38,7 +38,7 @@ async function uploadPinterestVideoPin({
   pinterest_profile,
   pinterest_access_token,
   youtube_channel_url,
-  cover_image_url,              // 👈 aggiunto
+  cover_image_url,              // 👈 aggiunto alla grande
 }) {
   try {
     console.log('📌 [Pinterest] Starting upload...');
@@ -440,3 +440,4 @@ app.listen(PORT, () => {
   console.log(`📡 TikTok Endpoint:    POST /upload`);
   console.log(`📡 Pinterest Endpoint: POST /upload/pinterest`);
 });
+
