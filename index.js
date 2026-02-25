@@ -178,7 +178,7 @@ async function uploadPinterestVideoPin({
           media_source: {
             source_type: 'video_id',   // 🔴 prima era 'media_id'
             media_id: String(mediaId), // deve essere stringa di cifre
-            cover_image_url: cover_image_url,
+            cover_image_url: cover_image_url, //thumbnail pin
           },
           title: finalTitle,
           description: finalDescription,
@@ -414,5 +414,6 @@ app.listen(PORT, () => {
   console.log(`📡 TikTok Endpoint:    POST /upload`);
   console.log(`📡 Pinterest Endpoint: POST /upload/pinterest`);
 });
+
 
 
